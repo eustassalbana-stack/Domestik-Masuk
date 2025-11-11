@@ -161,4 +161,4 @@ else:
 
 
 st.markdown("---")
-st.caption("Dibuat dengan ❤️ menggunakan Streamlit")
+st.caption("TETAP KERJA WALAUPUN TUKIN BELUM CAIR")
