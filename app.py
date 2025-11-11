@@ -54,10 +54,41 @@ else:
             df = df.rename(columns={"provinsi": "provinsi asal"})
             df["provinsi asal"] = df["provinsi asal"].fillna("Provinsi tidak diketahui")
 
+            # --- Status Pemeriksaan Komoditas (Wajib diinisialisasi sebelum digunakan) ---
+            if "checked_items" not in st.session_state:
+                st.session_state.checked_items = {}
+            
             # --- Sidebar Pilihan Komoditas ---
             st.sidebar.header("🔍 Pilih Komoditas")
-            komoditas_list = sorted(df["komoditas"].dropna().unique())
-            selected_komoditas = st.sidebar.selectbox("Pilih komoditas:", komoditas_list)
+            komoditas_list_raw = sorted(df["komoditas"].dropna().unique())
+            
+            # 1. Buat daftar opsi yang sudah dihias dengan tanda centang/kaca pembesar
+            komoditas_options = []
+            default_index = 0
+            
+            for i, komoditas in enumerate(komoditas_list_raw):
+                # Cek status pemeriksaan
+                is_checked = st.session_state.checked_items.get(komoditas, False)
+                # Tambahkan tanda ke nama komoditas
+                status_icon = "✅ " if is_checked else "🔎 "
+                komoditas_options.append(f"{status_icon} {komoditas}")
+                
+                # Jika komoditas saat ini adalah yang terpilih sebelumnya, simpan index-nya
+                # Ini penting agar st.radio tidak selalu memilih opsi pertama (index 0) saat refresh
+                if 'selected_komoditas_raw' in st.session_state and st.session_state.selected_komoditas_raw == komoditas:
+                    default_index = i
+
+            # 2. Ganti st.selectbox dengan st.radio
+            selected_option_with_icon = st.sidebar.radio(
+                "Pilih komoditas:", 
+                komoditas_options,
+                index=default_index,
+                key='radio_komoditas'
+            )
+            
+            # 3. Ekstrak nama komoditas asli (tanpa ikon) untuk filtering DataFrame
+            selected_komoditas = selected_option_with_icon[3:].strip() # Ambil string dari indeks ke-3 (setelah '✅ ' atau '🔎 ')
+            st.session_state.selected_komoditas_raw = selected_komoditas # Simpan nama asli
 
             # --- Filter data sesuai komoditas ---
             filtered_df = df[df["komoditas"] == selected_komoditas]
@@ -67,24 +98,24 @@ else:
                 subset=["provinsi asal", "daerah asal", "daerah tujuan", "klasifikasi", "komoditas", "nama tercetak", "kode hs", "satuan"]
             )
 
-            # --- Status Pemeriksaan Komoditas (per komoditas) ---
-            if "checked_items" not in st.session_state:
-                st.session_state.checked_items = {}
-
-            # ambil status sebelumnya (default False)
+            # --- Checkbox Pemeriksaan Komoditas ---
+            # Ambil status sebelumnya (default False)
             is_checked = st.session_state.checked_items.get(selected_komoditas, False)
 
-            # tampilkan checkbox dengan status sesuai komoditas
+            # Tampilkan checkbox
+            # Tambahkan callback function untuk memperbarui tampilan sidebar setelah dicentang/dihapus centang
+            def update_sidebar_on_check():
+                # Ini akan memaksa re-run aplikasi, yang akan memuat ulang st.radio dengan ikon yang diperbarui
+                st.session_state.checked_items[selected_komoditas] = st.session_state[f"check_{selected_komoditas}"]
+
             new_checked = st.checkbox(
                 f"✅ Tandai komoditas **{selected_komoditas}** telah diperiksa",
                 value=is_checked,
-                key=f"check_{selected_komoditas}"
+                key=f"check_{selected_komoditas}",
+                on_change=update_sidebar_on_check # Panggil fungsi callback
             )
-
-            # update session state hanya untuk komoditas ini
-            st.session_state.checked_items[selected_komoditas] = new_checked
-
-            # tampilkan notifikasi berdasarkan status
+            
+            # --- Tampilkan notifikasi berdasarkan status (tetap sama) ---
             if new_checked:
                 st.success(f"✅ Komoditas **{selected_komoditas}** telah diperiksa.")
             else:
@@ -98,13 +129,13 @@ else:
                 grouped_by_provinsi = filtered_df.groupby("provinsi asal")
 
                 for provinsi, group_df in grouped_by_provinsi:
-                    # Ambil SEMUA Kode HS unik dalam kelompok provinsi ini (Perubahan di sini)
+                    # Ambil SEMUA Kode HS unik dalam kelompok provinsi ini
                     unique_kode_hs = group_df["kode hs"].unique()
                     
                     # Gabungkan semua Kode HS unik menjadi satu string, dipisahkan koma
                     kode_hs_display = ", ".join(unique_kode_hs.astype(str))
                     
-                    # 2. Gunakan st.expander dengan nama provinsi dan Kode HS unik sebagai judul (Perubahan di sini)
+                    # 2. Gunakan st.expander dengan nama provinsi dan Kode HS unik sebagai judul
                     with st.expander(f"📦 **{provinsi}** - Kode HS: **{kode_hs_display}** (Total {len(group_df)} Entri Unik)"):
                         
                         # 3. Kumpulkan informasi unik di provinsi tersebut
@@ -135,7 +166,6 @@ else:
                 st.warning("Tidak ada data untuk komoditas ini.")
 
             # --- Unduh hasil ---
-            # ... (Fungsi Unduh tetap sama)
             @st.cache_data
             def convert_to_excel(df_export):
                 buffer = BytesIO()
@@ -161,4 +191,4 @@ else:
 
 
 st.markdown("---")
-st.caption("TETAP KERJA WALAUPUN TUKIN BELUM CAIR")
+st.caption("Dibuat dengan ❤️ menggunakan Streamlit")
