@@ -25,7 +25,6 @@ else:
         df.columns = df.columns.str.strip().str.lower()
 
         # --- Baca data mapping kabupaten–provinsi (Excel) ---
-        # Menggunakan kolom 0 dan 1 (A dan B) untuk memastikan data yang diambil benar
         map_df = pd.read_excel(mapping_file)
         map_df.columns = map_df.columns.str.lower().str.strip()
 
@@ -91,45 +90,58 @@ else:
             else:
                 st.info(f"🔎 Komoditas **{selected_komoditas}** belum diperiksa.")
 
-            # --- Tampilkan Data Secara Vertikal (Perubahan Utama) ---
+            # --- Tampilkan Data Secara Vertikal (Berfokus pada Provinsi dengan Expander) ---
             if not filtered_df.empty:
                 st.subheader(f"📊 Informasi Komoditas: {selected_komoditas}")
 
-                # List Kolom yang ingin ditampilkan
-                display_cols = {
-                    "provinsi asal": "Provinsi Asal",
-                    "daerah asal": "Daerah Asal",
-                    "daerah tujuan": "Daerah Tujuan",
-                    "klasifikasi": "Klasifikasi",
-                    "komoditas": "Komoditas",
-                    "nama tercetak": "Nama Tercetak",
-                    "kode hs": "Kode HS",
-                    "satuan": "Satuan"
-                }
+                # 1. Kelompokkan data berdasarkan 'provinsi asal'
+                grouped_by_provinsi = filtered_df.groupby("provinsi asal")
 
-                # Ganti st.dataframe dengan loop vertikal
-                for index, row in filtered_df.iterrows():
-                    with st.container(border=True):
-                        # Judul kecil untuk entri ini
-                        st.markdown(f"**Entri Data #{index + 1}**", unsafe_allow_html=True)
+                for provinsi, group_df in grouped_by_provinsi:
+                    # 2. Gunakan st.expander dengan nama provinsi sebagai judul
+                    with st.expander(f"📦 **{provinsi}** (Total {len(group_df)} Entri Unik)"):
+                        
+                        # 3. Kumpulkan informasi unik di provinsi tersebut
+                        daerah_asal_unik = sorted(group_df["daerah asal"].unique())
+                        daerah_tujuan_unik = sorted(group_df["daerah tujuan"].unique())
+                        klasifikasi_unik = sorted(group_df["klasifikasi"].unique())
+
                         st.markdown("---")
+                        
+                        # Tampilkan Daftar Daerah Asal
+                        st.markdown(f"**Daerah Asal di {provinsi} ({len(daerah_asal_unik)} Unik):**")
+                        # st.markdown(", ".join(daerah_asal_unik)) # Tampilan datar
+                        st.write(", ".join(daerah_asal_unik)) # Tampilan datar (lebih baik untuk list)
 
-                        # Tampilkan setiap kolom dalam baris vertikal
-                        for col_name, display_name in display_cols.items():
-                            st.markdown(f"**{display_name}:** {row[col_name]}")
-                    
-                    # Tambahkan spasi antar container
-                    st.write("") 
+                        # Tampilkan Daftar Daerah Tujuan
+                        st.markdown(f"**Daerah Tujuan ({len(daerah_tujuan_unik)} Unik):**")
+                        st.write(", ".join(daerah_tujuan_unik))
+
+                        # Tampilkan Daftar Klasifikasi
+                        st.markdown(f"**Klasifikasi ({len(klasifikasi_unik)} Unik):**")
+                        st.write(", ".join(klasifikasi_unik))
+
+                        st.markdown("---")
+                        # Tampilkan detail lainnya (Nama Tercetak, Kode HS)
+                        st.markdown(f"**Nama Tercetak:** {group_df['nama tercetak'].iloc[0]}")
+                        st.markdown(f"**Kode HS:** {group_df['kode hs'].iloc[0]} (Satuan: {group_df['satuan'].iloc[0]})")
+                        
+                        # Opsi: Tampilkan tabel mini dari detail entri unik
+                        # st.dataframe(group_df[["daerah asal", "daerah tujuan", "klasifikasi"]], use_container_width=True)
 
             else:
                 st.warning("Tidak ada data untuk komoditas ini.")
 
             # --- Unduh hasil ---
+            # ... (Fungsi Unduh tetap sama)
             @st.cache_data
             def convert_to_excel(df_export):
                 buffer = BytesIO()
-                # Pastikan hanya kolom yang relevan yang diekspor
-                cols_to_export = list(display_cols.keys())
+                # List kolom yang ingin ditampilkan di Excel (sama dengan required_cols_main)
+                cols_to_export = [
+                    "provinsi asal", "daerah asal", "daerah tujuan", "klasifikasi",
+                    "komoditas", "nama tercetak", "kode hs", "satuan"
+                ]
                 df_export[cols_to_export].to_excel(buffer, index=False, engine='openpyxl')
                 return buffer.getvalue()
 
@@ -147,4 +159,4 @@ else:
 
 
 st.markdown("---")
-st.caption("Dibuat dengan ❤️ menggunakan Streamlit")
+st.caption("1 langkah lagi")
