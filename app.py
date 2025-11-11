@@ -2,120 +2,74 @@ import streamlit as st
 import pandas as pd
 import os
 
-st.set_page_config(page_title="📦 Aplikasi Data Komoditas Ekspor", layout="wide")
+st.set_page_config(page_title="📦 Aplikasi Data Komoditas", layout="centered")
 
-# --- Judul Utama ---
-st.title("📦 Aplikasi Pencarian Data Komoditas Ekspor")
+st.title("📦 Aplikasi Pencarian Data Komoditas")
 
-# --- Nama file lokal ---
-excel_file = "Pembebasan domas.xlsx"
-mapping_file = "kabupaten_kota.xlsx"
+# --- Baca file otomatis ---
+domas_path = "Pembebasan domas.xlsx"
+kabupaten_path = "kabupaten_kota.xlsx"
 
-# --- Periksa keberadaan file ---
-if not os.path.exists(excel_file):
-    st.error(f"❌ File {excel_file} tidak ditemukan di folder aplikasi. Pastikan file ini berada di lokasi yang sama dengan app.py.")
-elif not os.path.exists(mapping_file):
-    st.error(f"❌ File {mapping_file} tidak ditemukan di folder aplikasi. Pastikan file ini berada di lokasi yang sama dengan app.py.")
+if not os.path.exists(domas_path):
+    st.error(f"File {domas_path} tidak ditemukan. Pastikan file ada di folder yang sama dengan app.py.")
+    st.stop()
+
+if not os.path.exists(kabupaten_path):
+    st.error(f"File {kabupaten_path} tidak ditemukan. Pastikan file ada di folder yang sama dengan app.py.")
+    st.stop()
+
+# --- Load Data ---
+data = pd.read_excel(domas_path)
+kabupaten = pd.read_excel(kabupaten_path)
+
+# --- Pastikan kolom nama konsisten ---
+kabupaten.columns = [c.strip().lower() for c in kabupaten.columns]
+
+# --- Map kabupaten ke provinsi ---
+def get_provinsi(nama_daerah):
+    if pd.isna(nama_daerah):
+        return ""
+    row = kabupaten[kabupaten['kabupaten/kota'].str.lower() == nama_daerah.lower()]
+    if not row.empty:
+        return row.iloc[0]['provinsi']
+    return ""
+
+# --- Tambahkan kolom provinsi ---
+data["Provinsi Asal"] = data["Daerah Asal"].apply(get_provinsi)
+data["Provinsi Tujuan"] = data["Daerah Tujuan"].apply(get_provinsi)
+
+# --- Hapus duplikat (asal & tujuan sama) ---
+data_unique = data.drop_duplicates(subset=["Komoditas", "Daerah Asal", "Daerah Tujuan"])
+
+# --- Pilih komoditas ---
+komoditas_list = sorted(data_unique["Komoditas"].dropna().unique())
+selected_komoditas = st.selectbox("Pilih Komoditas:", komoditas_list)
+
+# --- Filter data sesuai komoditas ---
+filtered_data = data_unique[data_unique["Komoditas"] == selected_komoditas]
+
+# --- Status Pemeriksaan Komoditas ---
+if "checked_items" not in st.session_state:
+    st.session_state.checked_items = {}
+
+is_checked = st.session_state.checked_items.get(selected_komoditas, False)
+
+new_checked = st.checkbox(
+    f"✅ Tandai komoditas **{selected_komoditas}** telah diperiksa",
+    value=is_checked,
+    key=f"check_{selected_komoditas}"
+)
+
+st.session_state.checked_items[selected_komoditas] = new_checked
+
+if new_checked:
+    st.success(f"✅ Komoditas **{selected_komoditas}** telah diperiksa.")
 else:
-    # --- Baca data utama ---
-    df = pd.read_excel(excel_file)
-    df.columns = df.columns.str.strip().str.lower()
+    st.info(f"🔎 Komoditas **{selected_komoditas}** belum diperiksa.")
 
-    # --- Baca data mapping kabupaten–provinsi (Excel) ---
-    map_df = pd.read_excel(mapping_file)
-    map_df.columns = map_df.columns.str.lower().str.strip()
-
-    # Pastikan ada kolom yang diperlukan
-    required_cols = [
-        "daerah asal", "daerah tujuan", "klasifikasi",
-        "komoditas", "nama tercetak", "kode hs", "satuan"
-    ]
-
-    if not all(col in df.columns for col in required_cols):
-        st.error(f"❌ Kolom wajib tidak lengkap. Pastikan file Excel memiliki kolom berikut:\n{', '.join(required_cols)}")
-    elif not all(col in map_df.columns for col in ["kabupaten_kota", "provinsi"]):
-        st.error("❌ File kabupaten_kota.xlsx harus memiliki kolom: kabupaten_kota dan provinsi.")
-    else:
-        # --- Standarisasi lowercase dan merge provinsi ---
-        df["daerah_asal_clean"] = df["daerah asal"].str.lower().str.strip()
-        map_df["kabupaten_kota_clean"] = map_df["kabupaten_kota"].str.lower().str.strip()
-
-        df = df.merge(
-            map_df[["kabupaten_kota_clean", "provinsi"]],
-            left_on="daerah_asal_clean",
-            right_on="kabupaten_kota_clean",
-            how="left"
-        )
-
-        df = df.rename(columns={"provinsi": "provinsi asal"})
-        df["provinsi asal"] = df["provinsi asal"].fillna("Provinsi tidak diketahui")
-
-        # --- Sidebar Pilihan Komoditas ---
-        st.sidebar.header("🔍 Pilih Komoditas")
-        komoditas_list = sorted(df["komoditas"].dropna().unique())
-        selected_komoditas = st.sidebar.selectbox("Pilih komoditas:", komoditas_list)
-
-        # --- Filter data sesuai komoditas ---
-        filtered_df = df[df["komoditas"] == selected_komoditas]
-
-        # --- Hapus duplikasi data asal–tujuan ---
-        filtered_df = filtered_df.drop_duplicates(
-            subset=["provinsi asal", "daerah asal", "daerah tujuan", "klasifikasi", "komoditas", "nama tercetak", "kode hs", "satuan"]
-        )
-
-        # --- Status Pemeriksaan Komoditas (per komoditas) ---
-        if "checked_items" not in st.session_state:
-            st.session_state.checked_items = {}
-
-        # ambil status sebelumnya (default False)
-        is_checked = st.session_state.checked_items.get(selected_komoditas, False)
-
-        # tampilkan checkbox dengan status sesuai komoditas
-        new_checked = st.checkbox(
-            f"✅ Tandai komoditas **{selected_komoditas}** telah diperiksa",
-            value=is_checked,
-            key=f"check_{selected_komoditas}"
-        )
-
-        # update session state hanya untuk komoditas ini
-        st.session_state.checked_items[selected_komoditas] = new_checked
-
-        # tampilkan notifikasi berdasarkan status
-        if new_checked:
-            st.success(f"✅ Komoditas **{selected_komoditas}** telah diperiksa.")
-        else:
-            st.info(f"🔎 Komoditas **{selected_komoditas}** belum diperiksa.")
-
-        # --- Tampilkan Data ---
-        if not filtered_df.empty:
-            st.subheader(f"📊 Informasi Komoditas: {selected_komoditas}")
-            st.dataframe(
-                filtered_df[
-                    [
-                        "provinsi asal", "daerah asal", "daerah tujuan",
-                        "klasifikasi", "komoditas", "nama tercetak",
-                        "kode hs", "satuan"
-                    ]
-                ],
-                use_container_width=True
-            )
-        else:
-            st.warning("Tidak ada data untuk komoditas ini.")
-
-        # --- Unduh hasil ---
-        @st.cache_data
-        def convert_to_excel(df_export):
-            from io import BytesIO
-            buffer = BytesIO()
-            df_export.to_excel(buffer, index=False, engine='openpyxl')
-            return buffer.getvalue()
-
-        st.download_button(
-            label="💾 Unduh Hasil (Excel)",
-            data=convert_to_excel(filtered_df),
-            file_name=f"hasil_{selected_komoditas}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-
+# --- Tampilkan Data dalam format vertikal ---
 st.markdown("---")
-st.caption("Dibuat dengan ❤️ menggunakan Streamlit")
+st.subheader(f"📋 Detail Komoditas: {selected_komoditas}")
+
+if not filtered_data.empty:
+    for _, r_
