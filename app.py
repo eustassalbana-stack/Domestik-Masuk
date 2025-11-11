@@ -98,8 +98,14 @@ else:
                 grouped_by_provinsi = filtered_df.groupby("provinsi asal")
 
                 for provinsi, group_df in grouped_by_provinsi:
-                    # 2. Gunakan st.expander dengan nama provinsi sebagai judul
-                    with st.expander(f"📦 **{provinsi}** (Total {len(group_df)} Entri Unik)"):
+                    # Ambil SEMUA Kode HS unik dalam kelompok provinsi ini (Perubahan di sini)
+                    unique_kode_hs = group_df["kode hs"].unique()
+                    
+                    # Gabungkan semua Kode HS unik menjadi satu string, dipisahkan koma
+                    kode_hs_display = ", ".join(unique_kode_hs.astype(str))
+                    
+                    # 2. Gunakan st.expander dengan nama provinsi dan Kode HS unik sebagai judul (Perubahan di sini)
+                    with st.expander(f"📦 **{provinsi}** - Kode HS: **{kode_hs_display}** (Total {len(group_df)} Entri Unik)"):
                         
                         # 3. Kumpulkan informasi unik di provinsi tersebut
                         daerah_asal_unik = sorted(group_df["daerah asal"].unique())
@@ -110,7 +116,6 @@ else:
                         
                         # Tampilkan Daftar Daerah Asal
                         st.markdown(f"**Daerah Asal di {provinsi} ({len(daerah_asal_unik)} Unik):**")
-                        # st.markdown(", ".join(daerah_asal_unik)) # Tampilan datar
                         st.write(", ".join(daerah_asal_unik)) # Tampilan datar (lebih baik untuk list)
 
                         # Tampilkan Daftar Daerah Tujuan
@@ -122,12 +127,9 @@ else:
                         st.write(", ".join(klasifikasi_unik))
 
                         st.markdown("---")
-                        # Tampilkan detail lainnya (Nama Tercetak, Kode HS)
+                        # Tampilkan detail lainnya (Nama Tercetak, Satuan)
                         st.markdown(f"**Nama Tercetak:** {group_df['nama tercetak'].iloc[0]}")
-                        st.markdown(f"**Kode HS:** {group_df['kode hs'].iloc[0]} (Satuan: {group_df['satuan'].iloc[0]})")
-                        
-                        # Opsi: Tampilkan tabel mini dari detail entri unik
-                        # st.dataframe(group_df[["daerah asal", "daerah tujuan", "klasifikasi"]], use_container_width=True)
+                        st.markdown(f"**Satuan:** {group_df['satuan'].iloc[0]}")
 
             else:
                 st.warning("Tidak ada data untuk komoditas ini.")
@@ -159,4 +161,4 @@ else:
 
 
 st.markdown("---")
-st.caption("1 langkah lagi")
+st.caption("Dibuat dengan ❤️ menggunakan Streamlit")
