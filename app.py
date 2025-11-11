@@ -21,7 +21,7 @@ else:
     df = pd.read_excel(excel_file)
     df.columns = df.columns.str.strip().str.lower()
 
-    # --- Baca data mapping kabupaten–provinsi (sekarang Excel) ---
+    # --- Baca data mapping kabupaten–provinsi (Excel) ---
     map_df = pd.read_excel(mapping_file)
     map_df.columns = map_df.columns.str.lower().str.strip()
 
@@ -55,6 +55,7 @@ else:
         komoditas_list = sorted(df["komoditas"].dropna().unique())
         selected_komoditas = st.sidebar.selectbox("Pilih komoditas:", komoditas_list)
 
+        # --- Filter data sesuai komoditas ---
         filtered_df = df[df["komoditas"] == selected_komoditas]
 
         # --- Hapus duplikasi data asal–tujuan ---
@@ -62,15 +63,28 @@ else:
             subset=["provinsi asal", "daerah asal", "daerah tujuan", "klasifikasi", "komoditas", "nama tercetak", "kode hs", "satuan"]
         )
 
-        # --- Status Pemeriksaan Komoditas ---
+        # --- Status Pemeriksaan Komoditas (per komoditas) ---
         if "checked_items" not in st.session_state:
             st.session_state.checked_items = {}
 
-        checked = st.checkbox(
-            "✅ Tandai komoditas ini sudah diperiksa",
-            value=st.session_state.checked_items.get(selected_komoditas, False)
+        # ambil status sebelumnya (default False)
+        is_checked = st.session_state.checked_items.get(selected_komoditas, False)
+
+        # tampilkan checkbox dengan status sesuai komoditas
+        new_checked = st.checkbox(
+            f"✅ Tandai komoditas **{selected_komoditas}** telah diperiksa",
+            value=is_checked,
+            key=f"check_{selected_komoditas}"
         )
-        st.session_state.checked_items[selected_komoditas] = checked
+
+        # update session state hanya untuk komoditas ini
+        st.session_state.checked_items[selected_komoditas] = new_checked
+
+        # tampilkan notifikasi berdasarkan status
+        if new_checked:
+            st.success(f"✅ Komoditas **{selected_komoditas}** telah diperiksa.")
+        else:
+            st.info(f"🔎 Komoditas **{selected_komoditas}** belum diperiksa.")
 
         # --- Tampilkan Data ---
         if not filtered_df.empty:
@@ -85,11 +99,6 @@ else:
                 ],
                 use_container_width=True
             )
-
-            if checked:
-                st.success(f"✅ Komoditas **{selected_komoditas}** telah diperiksa.")
-            else:
-                st.info(f"🔎 Komoditas **{selected_komoditas}** belum diperiksa.")
         else:
             st.warning("Tidak ada data untuk komoditas ini.")
 
