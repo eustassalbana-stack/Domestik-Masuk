@@ -1,7 +1,30 @@
 import streamlit as st
 import pandas as pd
 import os
+import json # Diperlukan untuk penyimpanan status
 from io import BytesIO
+
+# --- Konfigurasi Persistensi Checklist ---
+STATUS_FILE = "status_checklist.json"
+
+def load_checklist_status():
+    """Memuat status checklist dari file JSON."""
+    if os.path.exists(STATUS_FILE):
+        try:
+            with open(STATUS_FILE, 'r') as f:
+                return json.load(f)
+        except Exception:
+            # Jika file rusak atau kosong, kembalikan status kosong
+            return {}
+    return {}
+
+def save_checklist_status(data):
+    """Menyimpan status checklist ke file JSON."""
+    try:
+        with open(STATUS_FILE, 'w') as f:
+            json.dump(data, f, indent=4)
+    except Exception as e:
+        st.error(f"Gagal menyimpan status checklist: {e}")
 
 # Konfigurasi halaman
 st.set_page_config(page_title="📦 Aplikasi Data Komoditas Ekspor", layout="wide")
@@ -54,9 +77,10 @@ else:
             df = df.rename(columns={"provinsi": "provinsi asal"})
             df["provinsi asal"] = df["provinsi asal"].fillna("Provinsi tidak diketahui")
 
-            # --- Status Pemeriksaan Komoditas (Wajib diinisialisasi sebelum digunakan) ---
+            # --- Status Pemeriksaan Komoditas (INISIALISASI DENGAN PERSISTENSI) ---
             if "checked_items" not in st.session_state:
-                st.session_state.checked_items = {}
+                # Muat status dari file saat pertama kali dijalankan
+                st.session_state.checked_items = load_checklist_status()
             
             # --- Sidebar Pilihan Komoditas ---
             st.sidebar.header("🔍 Pilih Komoditas")
@@ -74,7 +98,6 @@ else:
                 komoditas_options.append(f"{status_icon} {komoditas}")
                 
                 # Jika komoditas saat ini adalah yang terpilih sebelumnya, simpan index-nya
-                # Ini penting agar st.radio tidak selalu memilih opsi pertama (index 0) saat refresh
                 if 'selected_komoditas_raw' in st.session_state and st.session_state.selected_komoditas_raw == komoditas:
                     default_index = i
 
@@ -102,12 +125,19 @@ else:
             # Ambil status sebelumnya (default False)
             is_checked = st.session_state.checked_items.get(selected_komoditas, False)
 
-            # Tampilkan checkbox
-            # Tambahkan callback function untuk memperbarui tampilan sidebar setelah dicentang/dihapus centang
+            # Callback function untuk memperbarui status dan menyimpannya ke disk
             def update_sidebar_on_check():
-                # Ini akan memaksa re-run aplikasi, yang akan memuat ulang st.radio dengan ikon yang diperbarui
+                # 1. Update status di session state
                 st.session_state.checked_items[selected_komoditas] = st.session_state[f"check_{selected_komoditas}"]
+                
+                # 2. SIMPAN STATUS BARU KE FILE (PERSISTENSI)
+                save_checklist_status(st.session_state.checked_items)
+                
+                # PENTING: Panggil st.rerun() untuk memaksa Streamlit memuat ulang,
+                # ini akan memperbarui ikon di st.radio di sidebar
+                st.rerun() 
 
+            # Tampilkan checkbox
             new_checked = st.checkbox(
                 f"✅ Tandai komoditas **{selected_komoditas}** telah diperiksa",
                 value=is_checked,
@@ -191,4 +221,4 @@ else:
 
 
 st.markdown("---")
-st.caption("Dibuat dengan ❤️ menggunakan Streamlit")
+st.caption("TETAP KERJA WALAUPUN TUKIN BELUM CAIR")
