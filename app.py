@@ -27,10 +27,10 @@ def save_checklist_status(data):
         st.error(f"Gagal menyimpan status checklist: {e}")
 
 # Konfigurasi halaman
-st.set_page_config(page_title="📦 Aplikasi Data Komoditas Ekspor", layout="wide")
+st.set_page_config(page_title="📦 Aplikasi Data Komoditas Domestik Masuk", layout="wide")
 
 # --- Judul Utama ---
-st.title("📦 Aplikasi Pencarian Data Komoditas Ekspor")
+st.title("📦 Aplikasi Pencarian Data Komoditas Domestik Masuk")
 
 # --- Nama file lokal ---
 excel_file = "Pembebasan domas.xlsx"
