@@ -91,7 +91,7 @@ def load_checklist_status_firestore():
         st.error(f"Error saat memuat status dari Firestore: {e}")
         return {}
 
-@st.experimental_fragment
+# BARIS INI TELAH DIPERBAIKI (MENGHAPUS @st.experimental_fragment)
 def save_checklist_status_firestore(data):
     """Menyimpan status checklist ke Firestore."""
     try:
@@ -320,7 +320,8 @@ def convert_to_excel(df_export):
         "komoditas", "nama tercetak", "kode hs", "satuan"
     ]
     # Filter kolom yang ada di DataFrame sebelum diekspor
-    export_cols = [col for col in cols_to_export if col in df_to_export.columns]
+    # NOTE: Fix bug di sini, variabel harusnya df_export
+    export_cols = [col for col in cols_to_export if col in df_export.columns] 
     
     df_export[export_cols].to_excel(buffer, index=False, engine='openpyxl')
     return buffer.getvalue()
