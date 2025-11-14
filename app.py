@@ -1,43 +1,125 @@
 import streamlit as st
 import pandas as pd
 import os
-import json 
+import json
 from io import BytesIO
 
-# --- KONFIGURASI PERSISTENSI CHECKLIST (File Lokal) ---
-# CATATAN PENTING: Pendekatan file lokal ini HANYA akan berfungsi jika aplikasi 
-# dijalankan di lingkungan lokal. Di lingkungan cloud (seperti Streamlit Cloud), 
-# file ini akan HILANG/RESET saat container server mati karena idle.
-# Untuk persistensi sejati di cloud, gunakan database seperti Firestore/Supabase.
-STATUS_FILE = "status_checklist.json"
+# --- FIREBASE / FIRESTORE IMPORTS ---
+# Asumsikan SDK Firebase sudah dimuat di lingkungan ini (seperti dalam React/HTML).
+# Untuk Streamlit, kita harus menggunakan metode simulasi SDK JS/Web
+# atau mengasumsikan paket Python resmi (firebase-admin atau firebase) tersedia.
+# Kami akan mensimulasikan koneksi menggunakan variabel global yang disediakan (MANDATORY).
 
-def load_checklist_status():
-    """Memuat status checklist dari file JSON. Lebih robust terhadap error."""
-    if os.path.exists(STATUS_FILE):
-        try:
-            with open(STATUS_FILE, 'r') as f:
-                # Memastikan file tidak kosong sebelum mencoba memuat JSON
-                content = f.read()
-                if content:
-                    return json.loads(content)
-                else:
+# Variabel Global yang Disediakan (JANGAN UBAH)
+try:
+    FIREBASE_CONFIG = json.loads(__firebase_config)
+    APP_ID = __app_id
+    INITIAL_AUTH_TOKEN = __initial_auth_token
+    # Log Level disetel di bagian init
+    
+    # Impor modul Firebase untuk lingkungan Streamlit/Python (Simulasi)
+    from firebase_admin import credentials, initialize_app, firestore
+    import firebase_admin
+
+    # Inisialisasi Firebase Admin SDK (hanya sekali)
+    if not firebase_admin._apps:
+        # Menggunakan kredensial dummy karena lingkungan ini akan menyediakan kredensial runtime
+        cred = credentials.Certificate({
+            "type": "service_account",
+            "project_id": FIREBASE_CONFIG["projectId"],
+            "private_key_id": "dummy",
+            "private_key": "dummy",
+            "client_email": "dummy@dummy.iam.gserviceaccount.com",
+            "client_id": "dummy",
+            "auth_uri": "dummy",
+            "token_uri": "dummy",
+            "auth_provider_x509_cert_url": "dummy",
+            "client_x509_cert_url": "dummy",
+            "universe_domain": "googleapis.com"
+        })
+        # Note: initialize_app akan menggunakan kredensial dummy, tetapi koneksi 
+        # ke Firestore akan diautentikasi secara otomatis oleh Canvas
+        firebase_admin.initialize_app(cred, FIREBASE_CONFIG, name=APP_ID)
+    
+    db = firestore.client(APP_ID)
+    
+    # Path dokumen publik yang akan menyimpan status checklist
+    # Path: /artifacts/{appId}/public/data/checklist_status/master_status
+    CHECKLIST_DOC_REF = db.collection("artifacts").document(APP_ID).collection("public").document("data").collection("checklist_status").document("master_status")
+
+    ST_USE_FIRESTORE = True
+except (NameError, ImportError, KeyError, AttributeError):
+    # Fallback ke mode file lokal jika Firebase SDK tidak tersedia atau variabel global hilang
+    st.warning("⚠️ Gagal menginisialisasi Firebase. Menggunakan persistensi file lokal (status_checklist.json) sebagai fallback.")
+    ST_USE_FIRESTORE = False
+    
+    STATUS_FILE = "status_checklist.json"
+
+    def load_checklist_status_local():
+        """Memuat status checklist dari file JSON lokal (Fallback)."""
+        if os.path.exists(STATUS_FILE):
+            try:
+                with open(STATUS_FILE, 'r') as f:
+                    content = f.read()
+                    if content:
+                        return json.loads(content)
                     return {}
-        except json.JSONDecodeError:
-            st.warning("File status_checklist.json rusak atau tidak valid, memulai status kosong.")
-            return {}
-        except Exception as e:
-            st.error(f"Error saat memuat status: {e}")
-            return {}
-    return {}
+            except (json.JSONDecodeError, Exception) as e:
+                st.error(f"Error memuat status lokal: {e}")
+                return {}
+        return {}
 
-def save_checklist_status(data):
-    """Menyimpan status checklist ke file JSON."""
+    def save_checklist_status_local(data):
+        """Menyimpan status checklist ke file JSON lokal (Fallback)."""
+        try:
+            with open(STATUS_FILE, 'w') as f:
+                json.dump(data, f, indent=4)
+            st.toast("Status checklist berhasil disimpan secara permanen (Lokal)!")
+        except Exception as e:
+            st.error(f"Gagal menyimpan status checklist ke disk (Lokal): {e}")
+
+# --- Fungsi Persistensi Firestore ---
+def load_checklist_status_firestore():
+    """Memuat status checklist dari Firestore (Hanya dipanggil saat init)."""
     try:
-        # Gunakan mode 'w' untuk menimpa file dengan status terbaru
-        with open(STATUS_FILE, 'w') as f:
-            json.dump(data, f, indent=4)
+        doc = CHECKLIST_DOC_REF.get()
+        if doc.exists:
+            # Mengembalikan dictionary status_map (e.g., {"Benih Anggrek": True})
+            return doc.to_dict().get("status_map", {})
+        return {}
     except Exception as e:
-        st.error(f"Gagal menyimpan status checklist ke disk: {e}")
+        st.error(f"Error saat memuat status dari Firestore: {e}")
+        return {}
+
+@st.experimental_fragment
+def save_checklist_status_firestore(data):
+    """Menyimpan status checklist ke Firestore."""
+    try:
+        # Menyimpan seluruh map status dalam satu dokumen
+        CHECKLIST_DOC_REF.set({"status_map": data}, merge=True)
+        # Tidak perlu st.toast di fragment, bisa menyebabkan masalah
+    except Exception as e:
+        st.error(f"Gagal menyimpan status checklist ke Firestore: {e}")
+
+# --- Callback function untuk memperbarui status dan menyimpannya ke disk/Firestore ---
+def update_checklist_and_save(selected_komoditas):
+    """Callback function yang dipanggil saat checkbox diubah."""
+    key_name = f"check_{selected_komoditas}"
+    new_status = st.session_state[key_name]
+    
+    st.session_state.checked_items[selected_komoditas] = new_status
+        
+    if ST_USE_FIRESTORE:
+        # Menyimpan ke Firestore
+        save_checklist_status_firestore(st.session_state.checked_items)
+        st.toast("Status checklist diperbarui di Firestore!")
+    else:
+        # Menyimpan ke File Lokal (Fallback)
+        save_checklist_status_local(st.session_state.checked_items)
+        
+    # PENTING: Panggil st.rerun() untuk memaksa Streamlit memuat ulang,
+    # ini akan memperbarui ikon di st.radio di sidebar
+    st.rerun()  
 
 # Konfigurasi halaman
 st.set_page_config(page_title="📦 Aplikasi Data Komoditas Domestik Masuk", layout="wide")
@@ -45,13 +127,22 @@ st.set_page_config(page_title="📦 Aplikasi Data Komoditas Domestik Masuk", lay
 # --- Judul Utama ---
 st.title("📦 Aplikasi Pencarian Data Komoditas Domestik Masuk")
 
+# --- Inisialisasi status checklist dari database (load persistensi) ---
+if "checked_items" not in st.session_state:
+    if ST_USE_FIRESTORE:
+        # Muat dari Firestore
+        st.session_state.checked_items = load_checklist_status_firestore()
+    else:
+        # Muat dari File Lokal (Fallback)
+        st.session_state.checked_items = load_checklist_status_local()
+        
+    st.session_state.initial_load_complete = True # Flag untuk menandai inisialisasi
+
 # --- Nama file lokal ---
-# NOTE: Asumsikan file-file ini ada untuk tujuan demo
 excel_file = "Pembebasan domas.xlsx"
 mapping_file = "kabupaten_kota.xlsx"
 
 # --- Kode Simulasi Data (Ganti dengan data asli Anda) ---
-# Jika Anda menjalankan ini tanpa file Excel, gunakan simulasi data ini
 if not os.path.exists(excel_file) or not os.path.exists(mapping_file):
     st.warning("File Excel tidak ditemukan. Menggunakan data dummy untuk demonstrasi fitur persistensi.")
     
@@ -87,7 +178,6 @@ if not os.path.exists(excel_file) or not os.path.exists(mapping_file):
     df = df.rename(columns={"provinsi": "provinsi asal"})
     df["provinsi asal"] = df["provinsi asal"].fillna("Provinsi tidak diketahui")
 
-    # Filter keluar jika data dummy digunakan
     st.sidebar.markdown("*Pilihan berdasarkan data dummy.*")
 
 else:
@@ -99,7 +189,6 @@ else:
         map_df.columns = map_df.columns.str.lower().str.strip()
         
         # (Sisa kode pembacaan, validasi, dan merge data Anda yang asli)
-        # ... [Kode validasi dan merge data Anda yang asli ada di sini] ...
         required_cols_main = [
             "daerah asal", "daerah tujuan", "klasifikasi",
             "komoditas", "nama tercetak", "kode hs", "satuan"
@@ -108,9 +197,9 @@ else:
 
         if not all(col in df.columns for col in required_cols_main) or \
            not all(col in map_df.columns for col in required_cols_map):
-             st.error("❌ Kolom wajib file Excel tidak lengkap.")
-             st.stop()
-        
+            st.error("❌ Kolom wajib file Excel tidak lengkap.")
+            st.stop()
+            
         df["daerah_asal_clean"] = df["daerah asal"].str.lower().str.strip()
         map_df["kabupaten_kota_clean"] = map_df["kabupaten_kota"].str.lower().str.strip()
 
@@ -129,10 +218,6 @@ else:
         st.stop()
 
 
-# --- Status Pemeriksaan Komoditas (LOAD PERSISTENSI) ---
-if "checked_items" not in st.session_state:
-    st.session_state.checked_items = load_checklist_status()
-    
 # --- Sidebar Pilihan Komoditas ---
 st.sidebar.header("🔍 Pilih Komoditas")
 komoditas_list_raw = sorted(df["komoditas"].dropna().unique())
@@ -141,15 +226,18 @@ komoditas_list_raw = sorted(df["komoditas"].dropna().unique())
 komoditas_options = []
 default_index = 0
     
+# Tentukan komoditas yang sebelumnya dipilih (untuk mempertahankan pilihan st.radio)
+previous_selected = st.session_state.get('selected_komoditas_raw', komoditas_list_raw[0] if komoditas_list_raw else None)
+    
 for i, komoditas in enumerate(komoditas_list_raw):
-    # Cek status pemeriksaan
+    # Cek status pemeriksaan dari st.session_state yang sudah dimuat dari Firestore/Lokal
     is_checked = st.session_state.checked_items.get(komoditas, False)
     # Tambahkan tanda ke nama komoditas
     status_icon = "✅ " if is_checked else "🔎 "
     komoditas_options.append(f"{status_icon} {komoditas}")
         
     # Jika komoditas saat ini adalah yang terpilih sebelumnya, simpan index-nya
-    if 'selected_komoditas_raw' in st.session_state and st.session_state.selected_komoditas_raw == komoditas:
+    if komoditas == previous_selected:
         default_index = i
 
 # 2. Ganti st.selectbox dengan st.radio
@@ -168,31 +256,21 @@ st.session_state.selected_komoditas_raw = selected_komoditas # Simpan nama asli
 filtered_df = df[df["komoditas"] == selected_komoditas]
 
 # --- Checkbox Pemeriksaan Komoditas ---
-# Ambil status sebelumnya (default False)
-is_checked = st.session_state.checked_items.get(selected_komoditas, False)
-
-# Callback function untuk memperbarui status dan menyimpannya ke disk
-def update_checklist_and_save():
-    # 1. Update status di session state
-    st.session_state.checked_items[selected_komoditas] = st.session_state[f"check_{selected_komoditas}"]
-        
-    # 2. SIMPAN STATUS BARU KE FILE (PERSISTENSI LOKAL)
-    save_checklist_status(st.session_state.checked_items)
-        
-    # PENTING: Panggil st.rerun() untuk memaksa Streamlit memuat ulang,
-    # ini akan memperbarui ikon di st.radio di sidebar
-    st.rerun() 
+# Ambil status sebelumnya (default False) dari session state yang persisten
+is_checked_state = st.session_state.checked_items.get(selected_komoditas, False)
 
 # Tampilkan checkbox
-new_checked = st.checkbox(
+st.checkbox(
     f"✅ Tandai komoditas **{selected_komoditas}** telah diperiksa",
-    value=is_checked,
+    value=is_checked_state, # Gunakan status yang dimuat dari file/Firestore
     key=f"check_{selected_komoditas}",
-    on_change=update_checklist_and_save # Panggil fungsi callback
+    # Panggil callback, berikan selected_komoditas sebagai argumen
+    on_change=update_checklist_and_save, 
+    args=(selected_komoditas,)
 )
     
 # --- Tampilkan notifikasi berdasarkan status ---
-if new_checked:
+if is_checked_state:
     st.success(f"✅ Komoditas **{selected_komoditas}** telah diperiksa.")
 else:
     st.info(f"🔎 Komoditas **{selected_komoditas}** belum diperiksa.")
@@ -205,7 +283,8 @@ if not filtered_df.empty:
 
     for provinsi, group_df in grouped_by_provinsi:
         unique_kode_hs = group_df["kode hs"].unique()
-        kode_hs_display = ", ".join(unique_kode_hs.astype(str))
+        # Pastikan Kode HS ditampilkan sebagai string, untuk menghindari error jika ada NaN atau tipe data campuran
+        kode_hs_display = ", ".join(unique_kode_hs.astype(str).tolist())
             
         with st.expander(f"📦 **{provinsi}** - Kode HS: **{kode_hs_display}** (Total {len(group_df)} Entri Unik)"):
             
@@ -225,6 +304,7 @@ if not filtered_df.empty:
             st.write(", ".join(klasifikasi_unik))
 
             st.markdown("---")
+            # Ambil nilai pertama untuk "nama tercetak" dan "satuan" karena diasumsikan sama dalam satu komoditas
             st.markdown(f"**Nama Tercetak:** {group_df['nama tercetak'].iloc[0]}")
             st.markdown(f"**Satuan:** {group_df['satuan'].iloc[0]}")
 
@@ -239,7 +319,10 @@ def convert_to_excel(df_export):
         "provinsi asal", "daerah asal", "daerah tujuan", "klasifikasi",
         "komoditas", "nama tercetak", "kode hs", "satuan"
     ]
-    df_export[cols_to_export].to_excel(buffer, index=False, engine='openpyxl')
+    # Filter kolom yang ada di DataFrame sebelum diekspor
+    export_cols = [col for col in cols_to_export if col in df_to_export.columns]
+    
+    df_export[export_cols].to_excel(buffer, index=False, engine='openpyxl')
     return buffer.getvalue()
 
 st.download_button(
